@@ -1,9 +1,12 @@
-// main.js — bootstrap and the frame loop. The simulation runs at a fixed 60 steps a second from
-// an accumulator, apart from rendering: however fast the display is, the game underneath ticks
-// the same. Three ways in: play (click the start card, pointer lock, you are the Casters' lead),
-// demo (?demo=1: the bots play each other under a roaming camera — the attract mode), and the
-// staged shots (?shot=start|play|plant|end&seed=n) the maker captures screenshots from, which
-// are the demo with a fixed seed and a set camera, so a shot is reproducible.
+// main.js — bootstrap and the frame loop.
+//
+// The simulation runs at a fixed 60 steps a second from an accumulator, apart
+// from rendering: however fast the display is, the game underneath ticks the
+// same, so a 144 Hz monitor and a 60 Hz one play the same match. Three ways in:
+//   play — click the start card, pointer lock, you lead the Casters;
+//   demo — ?demo=1: the bots play each other under a roaming camera (attract mode);
+//   shots — ?shot=start|play|plant|end&seed=n: the demo with a fixed seed and a
+//     set camera, so a screenshot is reproducible and agrees with the code.
 
 import * as THREE from 'three';
 import { buildMaterials, buildLights } from './palette.js';
@@ -62,17 +65,23 @@ function stageShot() {
     camera.position.set(0, 4.3, 23);
     camera.lookAt(0, 0.7, -18);
   } else if (shot === 'play') {
-    game.phase = 'live'; game.phaseT = 88;
+    game.phase = 'live';
+    game.phaseT = 88;
     camera.userData.followMid = true;
   } else if (shot === 'plant') {
-    game.phase = 'live'; game.phaseT = 60;
+    game.phase = 'live';
+    game.phaseT = 60;
     const planter = game.characters.find((c) => c.team === 'atk' && !c.isHuman);
     planter.pos.set(-19.5, 0, -11.5);
-    game.plantBomb(planter, game.targetSite && game.targetSite.id === 'A' ? game.targetSite : { id: 'A', name: 'Kiln Hall' });
+    const siteA = game.targetSite && game.targetSite.id === 'A'
+      ? game.targetSite
+      : { id: 'A', name: 'Kiln Hall' };
+    game.plantBomb(planter, siteA);
     camera.position.set(-11, 3.4, -5.5);
     camera.lookAt(-21, 0.7, -13);
   } else if (shot === 'end') {
-    game.phase = 'live'; game.phaseT = 50;
+    game.phase = 'live';
+    game.phaseT = 50;
     camera.position.set(6, 3.8, 8);
     camera.lookAt(-6, 1, -8);
     setTimeout(() => game.endRound('atk', 'Wardens eliminated'), 1400);
@@ -80,11 +89,12 @@ function stageShot() {
 }
 
 // ----- demo camera: roam to whoever is fighting -----
-let camTarget = null, camT = 0;
+let camTarget = null;
+let camT = 0;
 const _v = new THREE.Vector3();
 function demoCamera(dt) {
-  camT -= dt;
   if (shot === 'start' || shot === 'plant' || shot === 'end') return; // fixed cameras
+  camT -= dt;
   const fighters = game.characters.filter((c) => c.alive);
   if (!fighters.length) return;
   if (camT <= 0 || !camTarget || !camTarget.alive) {
@@ -92,10 +102,17 @@ function demoCamera(dt) {
     camT = 5 + Math.random() * 3;
   }
   const c = camTarget;
-  const back = 4.6, up = 2.4;
-  _v.set(c.pos.x + Math.sin(c.yaw) * back, c.pos.y + up, c.pos.z + Math.cos(c.yaw) * back);
+  _v.set(
+    c.pos.x + Math.sin(c.yaw) * 4.6,
+    c.pos.y + 2.4,
+    c.pos.z + Math.cos(c.yaw) * 4.6,
+  );
   camera.position.lerp(_v, Math.min(1, dt * 3));
-  camera.lookAt(c.pos.x - Math.sin(c.yaw) * 8, c.pos.y + 1.3, c.pos.z - Math.cos(c.yaw) * 8);
+  camera.lookAt(
+    c.pos.x - Math.sin(c.yaw) * 8,
+    c.pos.y + 1.3,
+    c.pos.z - Math.cos(c.yaw) * 8,
+  );
 }
 
 // ----- play flow -----
@@ -111,26 +128,33 @@ if (demo) {
     sounds.unlock();
     renderer.domElement.requestPointerLock();
     startScreen.classList.add('hidden');
-    if (!started) { game.startMatch(); started = true; }
+    if (!started) {
+      game.startMatch();
+      started = true;
+    }
   });
   document.addEventListener('pointerlockchange', () => {
-    if (!document.pointerLockElement && started && !hud.buyOpen) startScreen.classList.remove('hidden');
+    if (!document.pointerLockElement && started && !hud.buyOpen) {
+      startScreen.classList.remove('hidden');
+    }
   });
 }
 
-// Buy menu + scoreboard keys (the sim's own key handling lives in Input/PlayerController).
+// Buy menu + scoreboard keys. The sim's own keys live in Input/PlayerController.
 window.addEventListener('keydown', (e) => {
   if (demo) return;
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    hud.renderScoreboard();
+    hud.el.scoreboard.style.display = 'flex';
+  }
   if (e.code === 'KeyB' && game.phase === 'buy') hud.setBuyOpen(!hud.buyOpen);
   else if (e.code === 'Escape' && hud.buyOpen) hud.setBuyOpen(false);
   else if (hud.buyOpen && e.code.startsWith('Digit')) hud.buyKey(e.code);
-  if (e.code === 'Tab') { hud.renderScoreboard(); hud.el.scoreboard.style.display = 'flex'; }
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'Tab') hud.el.scoreboard.style.display = 'none';
 });
-// The shop closes itself when the buy phase ends.
-setInterval(() => { if (hud.buyOpen && game.phase !== 'buy') hud.setBuyOpen(false); }, 400);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -140,20 +164,24 @@ window.addEventListener('resize', () => {
 
 // ----- the loop: fixed-step simulation, free-running render -----
 const STEP = 1 / 60;
-let last = performance.now(), acc = 0;
+let last = performance.now();
+let acc = 0;
 function frame(now) {
   requestAnimationFrame(frame);
-  let dt = Math.min(0.1, (now - last) / 1000);
+  const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   acc += dt;
-  const playerStep = demo ? null : (sdt, canAct) => {
-    playerCtrl.step(sdt, input, game, canAct && started);
-    if (game.events.some((e) => e.type === 'playerFired')) playerCtrl.showMuzzleFlash();
-  };
+
+  const playerStep = demo
+    ? null
+    : (sdt, canAct) => playerCtrl.step(sdt, input, game, canAct && started);
   while (acc >= STEP) {
     game.step(STEP, started || demo ? playerStep : null);
     acc -= STEP;
   }
+  // The shop closes itself when the buy phase ends.
+  if (hud.buyOpen && game.phase !== 'buy') hud.setBuyOpen(false);
+
   for (const c of game.characters) c.syncMesh();
   if (demo) demoCamera(dt);
   else if (started) {
@@ -171,10 +199,21 @@ function spectate(dt) {
   if (!mates.length) return;
   if (!specTarget || !specTarget.alive) specTarget = mates[0];
   const c = specTarget;
-  _v.set(c.pos.x + Math.sin(c.yaw) * 3.4, c.pos.y + 2.1, c.pos.z + Math.cos(c.yaw) * 3.4);
+  _v.set(
+    c.pos.x + Math.sin(c.yaw) * 3.4,
+    c.pos.y + 2.1,
+    c.pos.z + Math.cos(c.yaw) * 3.4,
+  );
   camera.position.lerp(_v, Math.min(1, dt * 5));
-  camera.lookAt(c.pos.x - Math.sin(c.yaw) * 8, c.pos.y + 1.4, c.pos.z - Math.cos(c.yaw) * 8);
-  camera.fov = 78; camera.updateProjectionMatrix();
+  camera.lookAt(
+    c.pos.x - Math.sin(c.yaw) * 8,
+    c.pos.y + 1.4,
+    c.pos.z - Math.cos(c.yaw) * 8,
+  );
+  if (camera.fov !== 78) {
+    camera.fov = 78;
+    camera.updateProjectionMatrix();
+  }
 }
 
 requestAnimationFrame(frame);

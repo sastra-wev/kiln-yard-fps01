@@ -6,7 +6,9 @@
 <title>Kiln Yard — a three.js tactical FPS</title>
 <style>
   /* Look plan: a dusk foundry. Canvas, surface, hairline, ink, muted, and two team accents.
-     Every colour on this page is one of those seven. */
+     Every colour on this page is one of those seven. The HUD reads like foundry
+     instrumentation: monospace readouts, hairline panels, nothing rounded that
+     does not need to be. */
   :root {
     --canvas: #17130f;
     --surface: #241c15;
@@ -25,22 +27,34 @@
   #game, #game canvas { position: fixed; inset: 0; display: block; }
 
   #hud { position: fixed; inset: 0; pointer-events: none; }
-  #crosshair { position: fixed; left: 50%; top: 50%; width: 24px; height: 24px; transform: translate(-50%, -50%); }
+
+  /* The crosshair breathes: --gap is set from the gun's live spread every frame,
+     so the four arms ARE the accuracy readout. Moving opens them, stopping and
+     crouching close them, and the first shot is always the tightest. */
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); --gap: 6px; transition: opacity .12s; }
   #crosshair i { position: absolute; background: var(--ink); opacity: .9; }
-  #crosshair i:nth-child(1) { left: 11px; top: 0; width: 2px; height: 8px; }
-  #crosshair i:nth-child(2) { left: 11px; bottom: 0; width: 2px; height: 8px; }
-  #crosshair i:nth-child(3) { top: 11px; left: 0; height: 2px; width: 8px; }
-  #crosshair i:nth-child(4) { top: 11px; right: 0; height: 2px; width: 8px; }
-  #hitmarker { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; }
-  #hitmarker i { position: absolute; background: var(--accent); }
+  #crosshair i:nth-child(1) { left: calc(50% - 1px); bottom: calc(50% + var(--gap)); width: 2px; height: 7px; }
+  #crosshair i:nth-child(2) { left: calc(50% - 1px); top: calc(50% + var(--gap)); width: 2px; height: 7px; }
+  #crosshair i:nth-child(3) { top: calc(50% - 1px); right: calc(50% + var(--gap)); height: 2px; width: 7px; }
+  #crosshair i:nth-child(4) { top: calc(50% - 1px); left: calc(50% + var(--gap)); height: 2px; width: 7px; }
+  #crosshair::after { content: ''; position: absolute; left: calc(50% - 1px); top: calc(50% - 1px); width: 2px; height: 2px; background: var(--ink); opacity: .9; }
+
+  #hitmarker { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; color: #fff; }
+  #hitmarker i { position: absolute; background: currentColor; }
   #hitmarker i:nth-child(1) { left: 12px; top: 0; width: 2px; height: 8px; }
   #hitmarker i:nth-child(2) { left: 12px; bottom: 0; width: 2px; height: 8px; }
   #hitmarker i:nth-child(3) { top: 12px; left: 0; height: 2px; width: 8px; }
   #hitmarker i:nth-child(4) { top: 12px; right: 0; height: 2px; width: 8px; }
+
   #damageflash { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(190, 40, 20, .55) 100%); opacity: 0; }
+  /* The damage ring: an arc at the top of a circle around the crosshair, rotated
+     by the HUD to point at whoever just shot you. */
+  #dmgdir { position: fixed; left: calc(50% - 60px); top: calc(50% - 60px); width: 120px; height: 120px; border-radius: 50%; border-top: 5px solid rgba(232, 106, 74, .95); opacity: 0; pointer-events: none; }
   #scope { position: fixed; inset: 0; background: radial-gradient(circle at center, transparent 0 31%, var(--canvas) 32%); display: none; }
 
   .panel { background: color-mix(in srgb, var(--surface) 82%, transparent); border: 1px solid var(--hairline); border-radius: var(--radius-panel); }
+  #mappanel { position: fixed; left: 18px; top: 12px; padding: 6px; }
+  #minimap { display: block; width: 176px; height: 134px; }
   #vitals { position: fixed; left: 18px; bottom: 16px; padding: 8px 12px; min-width: 190px; }
   #vitals .row { display: flex; align-items: baseline; gap: 8px; }
   #healthvalue { font-family: var(--font-readout); font-size: 30px; font-weight: 700; }
@@ -112,9 +126,11 @@
 
 <div id="hud">
   <div id="damageflash"></div>
+  <div id="dmgdir"></div>
   <div id="scope"></div>
   <div id="crosshair"><i></i><i></i><i></i><i></i></div>
   <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+  <div id="mappanel" class="panel"><canvas id="minimap" width="176" height="134"></canvas></div>
   <div id="topbar" class="panel">
     <span class="teamscore" id="score-atk">CASTERS <b>0</b></span>
     <span class="alive" id="alive-atk"></span>
@@ -164,7 +180,7 @@
     <div class="cols">
       <div><b>Move</b>WASD move · mouse look<br>Shift walk (quiet, steady)<br>Ctrl / C crouch · Space jump<br>Stop moving to shoot straight</div>
       <div><b>Fight</b>Click fire · R reload<br>1 / 2 weapons · 4 frag · 5 smoke<br>Right-click: Longshot scope<br>E plant / interact · B buy menu</div>
-      <div><b>The round</b>100 seconds. Plant the charge and defend it for 40, or eliminate the Wardens. Win rounds, earn money, buy better guns. Tab: scoreboard.</div>
+      <div><b>The round</b>100 seconds. Plant the charge and defend it for 40, or eliminate the Wardens. Win rounds, earn money, buy better guns. The map shows only what your team has seen. Tab: scoreboard.</div>
     </div>
     <button id="playbtn">Click to play</button>
   </div>

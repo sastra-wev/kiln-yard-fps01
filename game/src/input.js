@@ -1,17 +1,18 @@
-// input.js — keyboard and mouse state for the human player. One object, written by event
-// listeners and read by the simulation; the sim never touches the DOM itself. Mouse movement is
-// accumulated into deltas the player controller consumes once per step, so look speed does not
-// depend on the event rate.
+// input.js — keyboard and mouse state for the human player. Event listeners write,
+// the simulation reads, and the sim never touches the DOM itself. Mouse movement is
+// accumulated into deltas that the player controller drains once per step, so look
+// speed depends on the mouse, not on how often the browser fires events.
 
 export class Input {
   constructor(dom) {
-    this.keys = new Set();
+    this.keys = new Set();      // codes currently held
+    this.pressed = new Set();   // codes that went down since the last consumePressed()
     this.mouseDX = 0;
     this.mouseDY = 0;
-    this.firing = false;
+    this.firing = false;        // left mouse held
     this.mouseDownRight = false;
-    this.locked = false;
-    this.pressed = new Set(); // key codes that went down since the last consumePressed()
+    this.locked = false;        // pointer lock engaged on the canvas
+
     dom.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
       this.mouseDX += e.movementX || 0;
@@ -27,28 +28,39 @@ export class Input {
       if (e.button === 2) this.mouseDownRight = false;
     });
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
+
     window.addEventListener('keydown', (e) => {
       if (!this.keys.has(e.code)) this.pressed.add(e.code);
       this.keys.add(e.code);
+      // Keys the game owns outright: the page must never scroll or tab away mid-round.
       if (['Space', 'Tab', 'KeyB'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    // Losing focus mid-firefight must not leave a key or the trigger stuck down.
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this.firing = false;
+      this.mouseDownRight = false;
+    });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === dom;
       if (!this.locked) this.firing = false;
     });
   }
 
+  /** Is this key code held right now? */
   down(code) { return this.keys.has(code); }
 
-  /** Read and clear the look deltas accumulated since the last call. */
+  /** Drain the look deltas accumulated since the last call. */
   takeLook() {
-    const dx = this.mouseDX, dy = this.mouseDY;
-    this.mouseDX = 0; this.mouseDY = 0;
+    const dx = this.mouseDX;
+    const dy = this.mouseDY;
+    this.mouseDX = 0;
+    this.mouseDY = 0;
     return { dx, dy };
   }
 
-  /** Read and clear the set of keys pressed since the last call (edge-triggered actions). */
+  /** Drain the set of keys pressed since the last call (edge-triggered actions). */
   consumePressed() {
     const p = this.pressed;
     this.pressed = new Set();
